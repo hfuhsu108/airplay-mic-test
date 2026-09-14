@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>iPad 麥克風波形測試</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", sans-serif;
+    background:#f5f5f7; color:#1d1d1f;
+  }
+  .wrap { max-width: 1100px; margin:0 auto; padding:24px; }
+  h1 { margin:0 0 8px; font-size:28px; }
+  .sub { color:#666; margin-bottom:20px; }
+  .toolbar { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px; }
+  button {
+    border:0; border-radius:12px; padding:12px 18px; font-size:17px; font-weight:600;
+    background:#007aff; color:white; cursor:pointer;
+  }
+  button.stop { background:#ff3b30; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  .status { padding:12px 14px; background:white; border-radius:12px; margin-bottom:16px; }
+  .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:16px; }
+  .card { background:white; border-radius:16px; padding:16px; }
+  .label { color:#666; font-size:14px; }
+  .value { font-size:28px; font-weight:700; margin-top:4px; }
+  canvas { width:100%; height:360px; display:block; background:#111; border-radius:16px; touch-action:none; }
+  .note { margin-top:14px; color:#666; font-size:14px; line-height:1.6; }
+  .ok { color:#138a36; font-weight:700; }
+  .warn { color:#b26a00; font-weight:700; }
+  .err { color:#c62828; font-weight:700; }
+  @media (max-width:700px){
+    .wrap{padding:16px}.grid{grid-template-columns:1fr 1fr}.value{font-size:22px} canvas{height:300px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>iPad 麥克風即時波形測試</h1>
+  <div class="sub">用途：測試「Safari 麥克風擷取 + AirPlay 到 Apple TV」時，波形是否仍能持續更新。</div>
+
+  <div class="toolbar">
+    <button id="startBtn">開始擷取麥克風</button>
+    <button id="stopBtn" class="stop" disabled>停止</button>
+  </div>
+
+  <div id="status" class="status">尚未開始。請按「開始擷取麥克風」，並允許 Safari 使用麥克風。</div>
+
+  <div class="grid">
+    <div class="card"><div class="label">峰值 Peak</div><div id="peak" class="value">—</div></div>
+    <div class="card"><div class="label">RMS</div><div id="rms" class="value">—</div></div>
+    <div class="card"><div class="label">取樣率</div><div id="sampleRate" class="value">—</div></div>
+  </div>
+
+  <canvas id="canvas"></canvas>
+  <div class="note">
+    測試方法：先在不使用 AirPlay 時確認波形正常，再開啟 iPad「螢幕鏡像」到 Apple TV。
+    如果投影後波形仍持續移動，代表此環境下 Safari 網頁可以在 AirPlay 鏡像時持續取得麥克風資料。
+  </div>
+</div>
+
+<script>
+(() => {
+  const startBtn = document.getElementById('startBtn');
+  const stopBtn = document.getElementById('stopBtn');
+  const status = document.getElementById('status');
+  const peakEl = document.getElementById('peak');
+  const rmsEl = document.getElementById('rms');
+  const sampleRateEl = document.getElementById('sampleRate');
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+
+  let stream = null;
+  let audioContext = null;
+  let analyser = null;
+  let source = null;
+  let raf = null;
+
+  function resizeCanvas() {
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = Math.floor(rect.width * dpr);
+    canvas.height = Math.floor(rect.height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  function drawGrid(w, h) {
+    ctx.fillStyle = '#111';
+    ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = '#2c2c2e';
+    ctx.lineWidth = 1;
+    for (let i = 1; i < 10; i++) {
+      const x = w * i / 10;
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+    }
+    for (let i = 1; i < 6; i++) {
+      const y = h * i / 6;
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+    }
+    ctx.strokeStyle = '#666';
+    ctx.beginPath(); ctx.moveTo(0, h/2); ctx.lineTo(w, h/2); ctx.stroke();
+  }
+
+  function loop() {
+    if (!analyser) return;
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    drawGrid(w, h);
+
+    const data = new Float32Array(analyser.fftSize);
+    analyser.getFloatTimeDomainData(data);
+
+    let peak = 0;
+    let sum = 0;
+    for (const v of data) {
+      const a = Math.abs(v);
+      if (a > peak) peak = a;
+      sum += v * v;
+    }
+    const rms = Math.sqrt(sum / data.length);
+
+    peakEl.textContent = peak.toFixed(3);
+    rmsEl.textContent = rms.toFixed(3);
+
+    ctx.strokeStyle = '#00ff88';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let i = 0; i < data.length; i++) {
+      const x = i / (data.length - 1) * w;
+      const y = h / 2 - data[i] * (h * 0.42);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    raf = requestAnimationFrame(loop);
+  }
+
+  async function start() {
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error('此瀏覽器不支援 getUserMedia。請使用 Safari 並透過 HTTPS 開啟。');
+      }
+
+      status.textContent = '正在請求麥克風權限……';
+      status.className = 'status';
+
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false
+        },
+        video: false
+      });
+
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioContext.state === 'suspended') await audioContext.resume();
+
+      source = audioContext.createMediaStreamSource(stream);
+      analyser = audioContext.createAnalyser();
+      analyser.fftSize = 2048;
+      analyser.smoothingTimeConstant = 0;
+      source.connect(analyser); // 不接 destination，避免把麥克風聲音播放出去
+
+      sampleRateEl.textContent = `${audioContext.sampleRate} Hz`;
+      status.innerHTML = '<span class="ok">● 麥克風擷取中</span>　現在可開啟 AirPlay／螢幕鏡像，觀察波形是否仍更新。';
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+
+      resizeCanvas();
+      loop();
+    } catch (err) {
+      console.error(err);
+      status.innerHTML = `<span class="err">啟動失敗：</span> ${err.message || err}`;
+      stop();
+    }
+  }
