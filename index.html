@@ -1,179 +1,213 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-Hant">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>iPad 麥克風波形測試</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AirPlay 收音測試</title>
 <style>
-  :root { color-scheme: light; }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; font-family: -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", sans-serif;
-    background:#f5f5f7; color:#1d1d1f;
-  }
-  .wrap { max-width: 1100px; margin:0 auto; padding:24px; }
-  h1 { margin:0 0 8px; font-size:28px; }
-  .sub { color:#666; margin-bottom:20px; }
-  .toolbar { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px; }
-  button {
-    border:0; border-radius:12px; padding:12px 18px; font-size:17px; font-weight:600;
-    background:#007aff; color:white; cursor:pointer;
-  }
-  button.stop { background:#ff3b30; }
-  button:disabled { opacity:.45; cursor:not-allowed; }
-  .status { padding:12px 14px; background:white; border-radius:12px; margin-bottom:16px; }
-  .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:16px; }
-  .card { background:white; border-radius:16px; padding:16px; }
-  .label { color:#666; font-size:14px; }
-  .value { font-size:28px; font-weight:700; margin-top:4px; }
-  canvas { width:100%; height:360px; display:block; background:#111; border-radius:16px; touch-action:none; }
-  .note { margin-top:14px; color:#666; font-size:14px; line-height:1.6; }
-  .ok { color:#138a36; font-weight:700; }
-  .warn { color:#b26a00; font-weight:700; }
-  .err { color:#c62828; font-weight:700; }
-  @media (max-width:700px){
-    .wrap{padding:16px}.grid{grid-template-columns:1fr 1fr}.value{font-size:22px} canvas{height:300px}
-  }
+  :root { color-scheme: dark; }
+  body { margin: 0; padding: 12px 16px; background: #111; color: #eee;
+         font: 18px/1.4 -apple-system, "PingFang TC", "Microsoft JhengHei", sans-serif; }
+  h1 { font-size: 22px; margin: 0 0 8px; }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+  button { font-size: 20px; padding: 10px 20px; border: 0; border-radius: 8px; background: #2d7be0; color: #fff; }
+  button:disabled { background: #444; color: #999; }
+  #verdict { font-size: 24px; font-weight: bold; padding: 6px 12px; border-radius: 8px; background: #333; }
+  #verdict.ok { background: #1f7a3a; }
+  #verdict.bad { background: #a32; }
+  canvas { width: 100%; height: 40vh; background: #000; border: 1px solid #333; border-radius: 6px; display: block; }
+  #meter { height: 16px; background: #222; border-radius: 4px; overflow: hidden; margin: 8px 0; }
+  #meterFill { height: 100%; width: 0; background: #4c4; }
+  table { border-collapse: collapse; font-size: 16px; }
+  td { padding: 2px 12px 2px 0; vertical-align: top; }
+  td:first-child { color: #999; white-space: nowrap; }
+  #log { font: 14px/1.4 ui-monospace, Menlo, Consolas, monospace; background: #000; border: 1px solid #333;
+         border-radius: 6px; padding: 8px; height: 22vh; overflow-y: auto; white-space: pre-wrap; margin: 8px 0 0; }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <h1>iPad 麥克風即時波形測試</h1>
-  <div class="sub">用途：測試「Safari 麥克風擷取 + AirPlay 到 Apple TV」時，波形是否仍能持續更新。</div>
-
-  <div class="toolbar">
-    <button id="startBtn">開始擷取麥克風</button>
-    <button id="stopBtn" class="stop" disabled>停止</button>
-  </div>
-
-  <div id="status" class="status">尚未開始。請按「開始擷取麥克風」，並允許 Safari 使用麥克風。</div>
-
-  <div class="grid">
-    <div class="card"><div class="label">峰值 Peak</div><div id="peak" class="value">—</div></div>
-    <div class="card"><div class="label">RMS</div><div id="rms" class="value">—</div></div>
-    <div class="card"><div class="label">取樣率</div><div id="sampleRate" class="value">—</div></div>
-  </div>
-
-  <canvas id="canvas"></canvas>
-  <div class="note">
-    測試方法：先在不使用 AirPlay 時確認波形正常，再開啟 iPad「螢幕鏡像」到 Apple TV。
-    如果投影後波形仍持續移動，代表此環境下 Safari 網頁可以在 AirPlay 鏡像時持續取得麥克風資料。
-  </div>
+<h1>AirPlay 收音測試</h1>
+<div class="bar">
+  <button id="startBtn">開始收音</button>
+  <button id="stopBtn" disabled>停止</button>
+  <span id="verdict">尚未開始</span>
 </div>
+<canvas id="scope"></canvas>
+<div id="meter"><div id="meterFill"></div></div>
+<table>
+  <tr><td>音量 RMS / 峰值</td><td id="lvl">-</td></tr>
+  <tr><td>AudioContext 狀態</td><td id="ctxState">-</td></tr>
+  <tr><td>取樣率</td><td id="rate">-</td></tr>
+  <tr><td>麥克風軌道</td><td id="trackInfo">-</td></tr>
+  <tr><td>navigator.audioSession</td><td id="session">-</td></tr>
+  <tr><td>輸入裝置</td><td id="devices">-</td></tr>
+</table>
+<div id="log"></div>
 
 <script>
-(() => {
-  const startBtn = document.getElementById('startBtn');
-  const stopBtn = document.getElementById('stopBtn');
-  const status = document.getElementById('status');
-  const peakEl = document.getElementById('peak');
-  const rmsEl = document.getElementById('rms');
-  const sampleRateEl = document.getElementById('sampleRate');
-  const canvas = document.getElementById('canvas');
-  const ctx = canvas.getContext('2d');
+"use strict";
+const $ = (id) => document.getElementById(id);
+const canvas = $("scope");
+const g = canvas.getContext("2d");
 
-  let stream = null;
-  let audioContext = null;
-  let analyser = null;
-  let source = null;
-  let raf = null;
+let stream = null, ctx = null, analyser = null, buf = null, rafId = 0;
+// 連續靜音的起點；AirPlay 失效時常見症狀是資料全為 0，而不是丟錯誤
+let silentSince = 0;
 
-  function resizeCanvas() {
-    const dpr = Math.max(1, window.devicePixelRatio || 1);
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = Math.floor(rect.width * dpr);
-    canvas.height = Math.floor(rect.height * dpr);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+function log(msg) {
+  const t = new Date().toLocaleTimeString("zh-TW", { hour12: false });
+  const el = $("log");
+  el.textContent += `[${t}] ${msg}\n`;
+  el.scrollTop = el.scrollHeight;
+}
+
+function setVerdict(text, cls) {
+  const v = $("verdict");
+  v.textContent = text;
+  v.className = cls || "";
+}
+
+function showSession() {
+  const s = navigator.audioSession;
+  $("session").textContent = s ? `type=${s.type}, state=${s.state ?? "?"}` : "不支援";
+}
+
+async function showDevices() {
+  try {
+    const list = await navigator.mediaDevices.enumerateDevices();
+    const inputs = list.filter((d) => d.kind === "audioinput").map((d) => d.label || "(無名稱)");
+    $("devices").textContent = inputs.length ? inputs.join("、") : "無";
+  } catch (err) {
+    $("devices").textContent = "讀取失敗：" + err.message;
+  }
+}
+
+function showTrack() {
+  const track = stream && stream.getAudioTracks()[0];
+  if (!track) { $("trackInfo").textContent = "-"; return; }
+  const s = track.getSettings();
+  $("trackInfo").textContent =
+    `${track.label || "(無名稱)"}｜readyState=${track.readyState}｜muted=${track.muted}｜` +
+    `ch=${s.channelCount ?? "?"}`;
+}
+
+function resizeCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = canvas.clientWidth * dpr;
+  canvas.height = canvas.clientHeight * dpr;
+}
+
+function draw() {
+  rafId = requestAnimationFrame(draw);
+  analyser.getFloatTimeDomainData(buf);
+
+  let sum = 0, peak = 0;
+  for (let i = 0; i < buf.length; i++) {
+    const a = Math.abs(buf[i]);
+    sum += buf[i] * buf[i];
+    if (a > peak) peak = a;
+  }
+  const rms = Math.sqrt(sum / buf.length);
+  $("lvl").textContent = `${rms.toFixed(4)} / ${peak.toFixed(4)}`;
+  $("meterFill").style.width = Math.min(100, rms * 400) + "%";
+
+  const now = performance.now();
+  if (peak === 0) {
+    if (!silentSince) silentSince = now;
+    if (now - silentSince > 1500) setVerdict("✗ 收到全零資料（收音失效）", "bad");
+  } else {
+    silentSince = 0;
+    setVerdict(rms > 0.002 ? "✓ 有收到聲音" : "△ 有資料但很小聲（對麥克風說話試試）", rms > 0.002 ? "ok" : "");
   }
 
-  function drawGrid(w, h) {
-    ctx.fillStyle = '#111';
-    ctx.fillRect(0, 0, w, h);
-    ctx.strokeStyle = '#2c2c2e';
-    ctx.lineWidth = 1;
-    for (let i = 1; i < 10; i++) {
-      const x = w * i / 10;
-      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
-    }
-    for (let i = 1; i < 6; i++) {
-      const y = h * i / 6;
-      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
-    }
-    ctx.strokeStyle = '#666';
-    ctx.beginPath(); ctx.moveTo(0, h/2); ctx.lineTo(w, h/2); ctx.stroke();
+  // 從上升過零點開始畫，波形才不會左右亂跳
+  let start = 0;
+  const half = buf.length / 2;
+  for (let i = 1; i < half; i++) {
+    if (buf[i - 1] < 0 && buf[i] >= 0) { start = i; break; }
   }
-
-  function loop() {
-    if (!analyser) return;
-    const w = canvas.clientWidth;
-    const h = canvas.clientHeight;
-    drawGrid(w, h);
-
-    const data = new Float32Array(analyser.fftSize);
-    analyser.getFloatTimeDomainData(data);
-
-    let peak = 0;
-    let sum = 0;
-    for (const v of data) {
-      const a = Math.abs(v);
-      if (a > peak) peak = a;
-      sum += v * v;
-    }
-    const rms = Math.sqrt(sum / data.length);
-
-    peakEl.textContent = peak.toFixed(3);
-    rmsEl.textContent = rms.toFixed(3);
-
-    ctx.strokeStyle = '#00ff88';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    for (let i = 0; i < data.length; i++) {
-      const x = i / (data.length - 1) * w;
-      const y = h / 2 - data[i] * (h * 0.42);
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-    }
-    ctx.stroke();
-
-    raf = requestAnimationFrame(loop);
+  const w = canvas.width, h = canvas.height;
+  g.fillStyle = "#000";
+  g.fillRect(0, 0, w, h);
+  g.strokeStyle = "#333";
+  g.beginPath(); g.moveTo(0, h / 2); g.lineTo(w, h / 2); g.stroke();
+  g.strokeStyle = "#4f4";
+  g.lineWidth = 2 * (window.devicePixelRatio || 1);
+  g.beginPath();
+  for (let i = 0; i < half; i++) {
+    const x = (i / half) * w;
+    const y = h / 2 - buf[start + i] * (h / 2) * 0.95;
+    if (i === 0) g.moveTo(x, y); else g.lineTo(x, y);
   }
+  g.stroke();
 
-  async function start() {
-    try {
-      if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error('此瀏覽器不支援 getUserMedia。請使用 Safari 並透過 HTTPS 開啟。');
-      }
+  $("ctxState").textContent = ctx.state;
+}
 
-      status.textContent = '正在請求麥克風權限……';
-      status.className = 'status';
-
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false
-        },
-        video: false
-      });
-
-      audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      if (audioContext.state === 'suspended') await audioContext.resume();
-
-      source = audioContext.createMediaStreamSource(stream);
-      analyser = audioContext.createAnalyser();
-      analyser.fftSize = 2048;
-      analyser.smoothingTimeConstant = 0;
-      source.connect(analyser); // 不接 destination，避免把麥克風聲音播放出去
-
-      sampleRateEl.textContent = `${audioContext.sampleRate} Hz`;
-      status.innerHTML = '<span class="ok">● 麥克風擷取中</span>　現在可開啟 AirPlay／螢幕鏡像，觀察波形是否仍更新。';
-      startBtn.disabled = true;
-      stopBtn.disabled = false;
-
-      resizeCanvas();
-      loop();
-    } catch (err) {
-      console.error(err);
-      status.innerHTML = `<span class="err">啟動失敗：</span> ${err.message || err}`;
-      stop();
-    }
+async function start() {
+  if (!window.isSecureContext) {
+    setVerdict("✗ 需要 HTTPS 才能收音", "bad");
+    log("非安全來源（不是 https 或 localhost），瀏覽器不允許 getUserMedia");
+    return;
   }
+  $("startBtn").disabled = true;
+  try {
+    // 關掉語音處理，否則回音消除／自動增益會改變波形，也可能影響音訊路徑
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+    });
+  } catch (err) {
+    setVerdict("✗ 無法取得麥克風：" + err.name, "bad");
+    log(`getUserMedia 失敗：${err.name} ${err.message}`);
+    $("startBtn").disabled = false;
+    return;
+  }
+  log("getUserMedia 成功");
+
+  const track = stream.getAudioTracks()[0];
+  track.addEventListener("mute", () => { log("軌道 mute 事件（系統暫停輸入）"); showTrack(); });
+  track.addEventListener("unmute", () => { log("軌道 unmute 事件"); showTrack(); });
+  track.addEventListener("ended", () => { log("軌道 ended 事件（輸入被終止）"); showTrack(); setVerdict("✗ 麥克風軌道已結束", "bad"); });
+
+  ctx = new (window.AudioContext || window.webkitAudioContext)();
+  ctx.addEventListener("statechange", () => log("AudioContext 狀態 → " + ctx.state));
+  if (ctx.state !== "running") await ctx.resume();
+
+  const src = ctx.createMediaStreamSource(stream);
+  analyser = ctx.createAnalyser();
+  analyser.fftSize = 2048;
+  buf = new Float32Array(analyser.fftSize);
+  src.connect(analyser);
+
+  $("rate").textContent = ctx.sampleRate + " Hz";
+  showTrack();
+  showSession();
+  showDevices();
+  resizeCanvas();
+  $("stopBtn").disabled = false;
+  draw();
+}
+
+function stop() {
+  cancelAnimationFrame(rafId);
+  if (stream) stream.getTracks().forEach((t) => t.stop());
+  if (ctx) ctx.close().catch((err) => log("AudioContext 關閉失敗：" + err.message));
+  stream = null; ctx = null; silentSince = 0;
+  $("startBtn").disabled = false;
+  $("stopBtn").disabled = true;
+  setVerdict("已停止");
+  log("已停止");
+}
+
+$("startBtn").addEventListener("click", start);
+$("stopBtn").addEventListener("click", stop);
+window.addEventListener("resize", () => { if (analyser) resizeCanvas(); });
+if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
+  navigator.mediaDevices.addEventListener("devicechange", () => { log("devicechange 事件（音訊裝置或路徑改變）"); showDevices(); });
+}
+document.addEventListener("visibilitychange", () => log("頁面可見性 → " + document.visibilityState));
+showSession();
+log("頁面載入完成，secureContext=" + window.isSecureContext);
+</script>
+</body>
+</html>
